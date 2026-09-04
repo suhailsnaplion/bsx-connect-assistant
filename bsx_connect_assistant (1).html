@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BSX Connect Assistant</title>
+<style>
+  :root {
+    --navy: #003C71;
+    --navy-deep: #00294D;
+    --tint: #E8EEF4;
+    --tint-mid: #C9D9E8;
+    --gray: #4A4A4A;
+    --gray-light: #8A94A0;
+    --border: #DCE4EC;
+    --bg: #F7F9FB;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: Calibri, "Segoe UI", Arial, sans-serif;
+    background: transparent;
+    color: var(--gray);
+  }
+
+  /* ---------- Floating launcher ---------- */
+  .launcher {
+    position: fixed;
+    bottom: 26px; right: 26px;
+    width: 58px; height: 58px;
+    border-radius: 50%;
+    background: var(--navy);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,60,113,0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    z-index: 999;
+  }
+  .launcher:hover { transform: scale(1.06); box-shadow: 0 8px 24px rgba(0,60,113,0.42); }
+  .launcher svg { width: 26px; height: 26px; }
+  .launcher.hidden { display: none; }
+
+  /* ---------- Chat panel ---------- */
+  .widget {
+    position: fixed;
+    bottom: 26px; right: 26px;
+    width: 400px;
+    height: 620px;
+    max-height: calc(100vh - 52px);
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 12px 40px rgba(0,40,80,0.22);
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 1000;
+  }
+  .widget.open { display: flex; }
+
+  .header {
+    background: var(--navy);
+    color: #fff;
+    padding: 16px 16px 14px 18px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 7px;
+    background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .brand-mark svg { width: 18px; height: 18px; }
+  .brand-text h1 {
+    margin: 0; font-size: 15.5px; font-weight: 700; line-height: 1.2;
+  }
+  .brand-text span {
+    font-size: 11px; color: var(--tint-mid);
+  }
+  .header-actions { display: flex; align-items: center; gap: 4px; }
+  .icon-btn {
+    background: none; border: none; cursor: pointer;
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; opacity: 0.85;
+    transition: background 0.12s ease, opacity 0.12s ease;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,0.14); opacity: 1; }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  .settings-panel {
+    display: none;
+    padding: 12px 18px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    flex-shrink: 0;
+    font-size: 12px;
+  }
+  .settings-panel.open { display: block; }
+  .settings-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  .settings-row label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--gray); }
+  .settings-panel input[type="password"] {
+    flex: 1; min-width: 180px;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 9px; font-size: 12px; font-family: inherit;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chip {
+    font-size: 12px;
+    color: var(--navy);
+    background: var(--tint);
+    border: 1px solid var(--tint-mid);
+    padding: 5px 11px;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .chip:hover { background: var(--tint-mid); }
+
+  .thread {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg { display: flex; flex-direction: column; max-width: 86%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.bot { align-self: flex-start; align-items: flex-start; }
+  .bubble {
+    padding: 11px 14px;
+    border-radius: 12px;
+    font-size: 13.8px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .msg.user .bubble {
+    background: var(--navy);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+  }
+  .msg.bot .bubble {
+    background: var(--tint);
+    color: #1a2733;
+    border-bottom-left-radius: 3px;
+  }
+  .msg.bot.fallback .bubble {
+    background: #FBF3E7;
+    border: 1px solid #E8D3A8;
+    color: #6B4F1D;
+  }
+
+  .composer {
+    border-top: 1px solid var(--border);
+    padding: 12px 14px 14px;
+    flex-shrink: 0;
+    background: #fff;
+  }
+  .composer form {
+    display: flex;
+    gap: 8px;
+  }
+  .composer input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13.8px;
+    font-family: inherit;
+    color: var(--gray);
+    outline: none;
+  }
+  .composer input:focus { border-color: var(--navy); }
+  .composer button {
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 0 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .composer button:disabled {
+    background: var(--gray-light);
+    cursor: default;
+  }
+  .typing {
+    display: flex; gap: 4px; padding: 6px 0;
+  }
+  .typing span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--gray-light);
+    animation: bounce 1.2s infinite ease-in-out;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.15s; }
+  .typing span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  @media (max-width: 460px) {
+    .widget { width: calc(100vw - 24px); right: 12px; bottom: 12px; height: calc(100vh - 24px); }
+    .launcher { bottom: 16px; right: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="launcher" id="launcher" title="Chat with BSX Connect Assistant">
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M4 4H20C21.1 4 22 4.9 22 6V16C22 17.1 21.1 18 20 18H8L4 22V18H4C2.9 18 2 17.1 2 16V6C2 4.9 2.9 4 4 4Z" fill="white"/>
+    <circle cx="8" cy="11" r="1.3" fill="#003C71"/>
+    <circle cx="12" cy="11" r="1.3" fill="#003C71"/>
+    <circle cx="16" cy="11" r="1.3" fill="#003C71"/>
+  </svg>
+</div>
+
+<div class="widget" id="widget">
+  <div class="header">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="11" fill="#003C71"/>
+          <path d="M12 5 L12 19 M5 12 L19 12" stroke="white" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>Boston Scientific</h1>
+        <span>BSX Connect Assistant</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="settingsToggle" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="icon-btn" id="closeWidget" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-row">
+      <label><input type="radio" name="provider" value="anthropic" checked> Claude</label>
+      <label><input type="radio" name="provider" value="openai"> OpenAI</label>
+    </div>
+    <div class="settings-row">
+      <input type="password" id="openaiKeyInput" placeholder="sk-... (session only)" disabled />
+    </div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+
+  <div class="thread" id="thread"></div>
+
+  <div class="composer">
+    <form id="composerForm">
+      <input id="input" type="text" placeholder="Ask a question…" autocomplete="off" />
+      <button id="sendBtn" type="submit">Ask</button>
+    </form>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------
+// Fictional knowledge base for "BSX Connect" — the new commercial platform
+// ---------------------------------------------------------------
+const KB = [
+  { id: "login", title: "Logging in for the first time", text: "New users log in to BSX Connect with their existing Boston Scientific single sign-on (SSO) credentials — no separate password is needed. On first login, you'll be prompted to confirm your region and sales team." },
+  { id: "sso-issue", title: "SSO login not working", text: "If SSO login fails, first confirm you're using your @bsci.com email. If the issue persists, it's usually a regional access provisioning delay — contact your local IT helpdesk, not the BSX Connect support line, since this is an identity/access issue." },
+  { id: "account-sync", title: "Syncing existing account data", text: "Existing account and deal data from your prior spreadsheets or local CRM exports can be imported via the 'Import Data' tool in Settings. Uploads are matched against existing account records automatically; duplicates are flagged for your review before merging, not merged silently." },
+  { id: "data-source", title: "Where does account data come from", text: "BSX Connect pulls account, contact, and deal data from a single unified data layer that synchronizes nightly across all connected regional systems. This replaces the need to maintain separate local spreadsheets." },
+  { id: "quote-create", title: "Creating a new quote", text: "From any account page, select 'New Quote', choose the relevant product line, and BSX Connect will pre-fill pricing and terms based on your region's approved catalog. Quotes can be edited before submission." },
+  { id: "quote-approval", title: "Quote approval process", text: "Quotes above your individual approval threshold are automatically routed to your regional sales manager for review. You'll see the approval status directly on the quote page — no separate email chain required." },
+  { id: "deal-tracking", title: "Tracking deal status", text: "Each account has a live Deal Timeline showing every stage from first contact to close. This replaces manually updating a spreadsheet — the timeline updates automatically as quotes, meetings, and follow-ups are logged." },
+  { id: "mobile-access", title: "Using BSX Connect on mobile", text: "BSX Connect has a mobile-optimized view accessible from any browser — no separate app install is required for the initial launch. A dedicated mobile app is planned for a later phase." },
+  { id: "offline-mode", title: "Working offline", text: "BSX Connect requires an internet connection for real-time data sync. If you're in a low-connectivity environment, key account and quote data can be viewed in a cached read-only mode, but new entries should be submitted once reconnected." },
+  { id: "ai-assistant-scope", title: "What this assistant can help with", text: "This assistant can answer questions about how to use BSX Connect — logging in, syncing data, creating quotes, tracking deals, and finding support contacts. It does not have access to your personal account data or specific deal details." },
+  { id: "data-privacy", title: "How is my data kept secure", text: "All data in BSX Connect is encrypted in transit and at rest, and access follows the same regional data privacy requirements (including GDPR, PDPA, and PIPL where applicable) as existing Boston Scientific systems. Data residency rules for China remain unchanged under the new platform." },
+  { id: "champion-program", title: "What is the Champion Program", text: "Each anchor market has a designated BSX Connect Champion — a peer sales rep trained early to help their team with day-to-day questions and model best practices during rollout. Ask your regional sales manager who your local Champion is." },
+  { id: "training-resources", title: "Where to find training resources", text: "Short video walkthroughs and a quick-start guide are available under the 'Learn' tab inside BSX Connect. Live onboarding sessions are also scheduled during your market's launch week." },
+  { id: "rollout-timeline", title: "When is BSX Connect launching in my market", text: "BSX Connect launches first for Sales Representatives in Singapore, Japan, and Vietnam, followed by remaining APAC markets, then extension to Sales Operations and Account Management teams. Check with your regional sales manager for your market's specific date." },
+  { id: "support-contact", title: "Who to contact for help", text: "For platform how-to questions, start with your local BSX Connect Champion. For technical issues (login, sync errors), contact IT Helpdesk. For questions about data accuracy, contact your regional Sales Operations lead." },
+  { id: "notifications", title: "Managing notifications", text: "Notification preferences (email digest, in-app alerts, deal status changes) can be adjusted under Settings > Notifications. By default, you'll be notified when a quote you submitted is approved or needs revision." },
+  { id: "old-tools", title: "Do I still use my old spreadsheets", text: "No — once your market launches, BSX Connect becomes the single source of truth for account and deal data. Continuing to maintain parallel spreadsheets creates data conflicts and is discouraged after your launch date." },
+  { id: "forecasting", title: "Forecasting and reporting", text: "Regional forecasts are generated automatically from live deal data in BSX Connect, replacing manually compiled spreadsheet rollups. Reps can see how their pipeline contributes to the regional forecast directly on their dashboard." },
+  { id: "multi-country", title: "Working across multiple countries", text: "If you manage accounts across more than one country, BSX Connect lets you toggle between market views from your profile — pricing, approval routing, and compliance rules automatically adjust to the selected market." },
+  { id: "feedback", title: "How to give feedback on the platform", text: "A feedback link is available in the footer of every BSX Connect page. Feedback is reviewed weekly by the regional product team during the rollout period." }
+];
+
+// ---------------------------------------------------------------
+// Lightweight retrieval: keyword-overlap scoring (simple, in-browser RAG)
+// ---------------------------------------------------------------
+function tokenize(str) {
+  return str.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(w => w.length > 2);
+}
+const STOPWORDS = new Set(["the","and","for","are","how","what","can","does","with","this","that","from","have","been","will","who","when","where"]);
+
+function retrieve(query, topK = 3) {
+  const qTokens = tokenize(query).filter(t => !STOPWORDS.has(t));
+  const scored = KB.map(entry => {
+    const entryTokens = new Set(tokenize(entry.title + " " + entry.text));
+    let score = 0;
+    qTokens.forEach(t => { if (entryTokens.has(t)) score += 1; });
+    return { entry, score };
+  }).filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return scored.slice(0, topK);
+}
+
+// Confidence gate: if the best match is weak, this is a guardrail trigger —
+// the app will not call an LLM at all in that case.
+const CONFIDENCE_MIN_SCORE = 1;
+
+// ---------------------------------------------------------------
+// UI wiring — launcher + widget open/close
+// ---------------------------------------------------------------
+const launcher = document.getElementById("launcher");
+const widget = document.getElementById("widget");
+const closeWidget = document.getElementById("closeWidget");
+
+launcher.addEventListener("click", () => {
+  widget.classList.add("open");
+  launcher.classList.add("hidden");
+  document.getElementById("input").focus();
+});
+closeWidget.addEventListener("click", () => {
+  widget.classList.remove("open");
+  launcher.classList.remove("hidden");
+});
+
+const thread = document.getElementById("thread");
+const form = document.getElementById("composerForm");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("sendBtn");
+const chipsEl = document.getElementById("chips");
+
+// --- Provider settings (in-memory only, never persisted to storage) ---
+const state = { provider: "anthropic", openaiKey: "" };
+
+const settingsToggle = document.getElementById("settingsToggle");
+const settingsPanel = document.getElementById("settingsPanel");
+const openaiKeyInput = document.getElementById("openaiKeyInput");
+
+settingsToggle.addEventListener("click", () => {
+  settingsPanel.classList.toggle("open");
+});
+
+document.querySelectorAll('input[name="provider"]').forEach(radio => {
+  radio.addEventListener("change", (e) => {
+    state.provider = e.target.value;
+    openaiKeyInput.disabled = state.provider !== "openai";
+  });
+});
+
+openaiKeyInput.addEventListener("input", (e) => {
+  state.openaiKey = e.target.value.trim();
+});
+
+const SAMPLE_QUESTIONS = [
+  "How do I log in?",
+  "Can I still use spreadsheets?",
+  "When does my market launch?",
+  "What's my refund policy?"
+];
+
+SAMPLE_QUESTIONS.forEach(q => {
+  const chip = document.createElement("div");
+  chip.className = "chip";
+  chip.textContent = q;
+  chip.onclick = () => { input.value = q; form.dispatchEvent(new Event("submit")); };
+  chipsEl.appendChild(chip);
+});
+
+function addMessage(role, opts) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + role + (opts.fallback ? " fallback" : "");
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = opts.text;
+  wrap.appendChild(bubble);
+  thread.appendChild(wrap);
+  thread.scrollTop = thread.scrollHeight;
+  return wrap;
+}
+
+function addTyping() {
+  const wrap = document.createElement("div");
+  wrap.className = "msg bot";
+  wrap.id = "typingIndicator";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.innerHTML = `<div class="typing"><span></span><span></span><span></span></div>`;
+  wrap.appendChild(bubble);
+  thread.appendChild(wrap);
+  thread.scrollTop = thread.scrollHeight;
+}
+function removeTyping() {
+  const el = document.getElementById("typingIndicator");
+  if (el) el.remove();
+}
+
+async function handleQuery(query) {
+  const matches = retrieve(query, 3);
+  const hasConfidentMatch = matches.length > 0 && matches[0].score >= CONFIDENCE_MIN_SCORE;
+
+  addTyping();
+
+  if (!hasConfidentMatch) {
+    await new Promise(r => setTimeout(r, 500));
+    removeTyping();
+    addMessage("bot", {
+      text: "I don't have a confident answer to that yet — rather than guess, I'd rather point you to a person. For platform how-to questions, reach out to your local BSX Connect Champion; for anything account-specific, your regional Sales Operations lead.",
+      fallback: true
+    });
+    return;
+  }
+
+  const context = matches.map(m => `[${m.entry.title}]: ${m.entry.text}`).join("\n\n");
+  const systemPrompt = `You are the BSX Connect Assistant, an internal onboarding assistant for Boston Scientific's new commercial platform, BSX Connect. Answer ONLY using the provided context below. Keep answers concise (2-4 sentences), friendly, and practical for a sales rep. Do not invent details not present in the context. If the context doesn't fully answer the question, say what you do know and note the gap plainly.\n\nCONTEXT:\n${context}`;
+
+  try {
+    let answer;
+
+    if (state.provider === "openai") {
+      if (!state.openaiKey) {
+        removeTyping();
+        addMessage("bot", {
+          text: "OpenAI is selected but no key has been entered yet. Open Settings above, or switch back to Claude.",
+          fallback: true
+        });
+        return;
+      }
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + state.openaiKey
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          max_tokens: 300,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: query }
+          ]
+        })
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message || "OpenAI request failed");
+      answer = data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message.content
+        : "I wasn't able to generate a response — please try rephrasing your question.";
+    } else {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 300,
+          system: systemPrompt,
+          messages: [{ role: "user", content: query }]
+        })
+      });
+      const data = await response.json();
+      const textBlock = (data.content || []).find(b => b.type === "text");
+      answer = textBlock ? textBlock.text : "I wasn't able to generate a response — please try rephrasing your question.";
+    }
+
+    removeTyping();
+    addMessage("bot", { text: answer, fallback: false });
+  } catch (err) {
+    removeTyping();
+    addMessage("bot", {
+      text: "Something went wrong reaching the assistant service. Please check settings and try again.",
+      fallback: true
+    });
+  }
+}
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const query = input.value.trim();
+  if (!query) return;
+  addMessage("user", { text: query });
+  input.value = "";
+  sendBtn.disabled = true;
+  handleQuery(query).finally(() => { sendBtn.disabled = false; input.focus(); });
+});
+
+// Opening message
+addMessage("bot", {
+  text: "Hi — I'm the BSX Connect Assistant. Ask me how to log in, sync your account data, submit a quote, or find the right person for help.",
+  fallback: false
+});
+</script>
+
+</body>
+</html>
