@@ -1,6 +1,10 @@
 // Vercel Serverless Function — /api/chat
-// This runs on the server, not the browser. The OpenAI key lives here as an
-// environment variable and is never sent to the client at any point.
+// Every real question is sent to OpenAI with the full FAQ knowledge base as
+// context. The model is instructed to answer ONLY from that context, or
+// return a specific NOT_FOUND signal if the question isn't covered — that
+// signal, not a separate pre-filter, is what triggers the escalation message.
+// This is more robust than keyword pre-filtering because it doesn't depend
+// on exact word overlap between the question and the FAQ text.
 
 const KB = [
   { id: "login", title: "Logging in for the first time", text: "New users log in to BSX Connect with their existing Boston Scientific single sign-on (SSO) credentials — no separate password is needed. On first login, you'll be prompted to confirm your region and sales team." },
@@ -25,25 +29,22 @@ const KB = [
   { id: "feedback", title: "How to give feedback on the platform", text: "A feedback link is available in the footer of every BSX Connect page. Feedback is reviewed weekly by the regional product team during the rollout period." }
 ];
 
-function tokenize(str) {
-  return str.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(w => w.length > 2);
-}
-const STOPWORDS = new Set(["the", "and", "for", "are", "how", "what", "can", "does", "with", "this", "that", "from", "have", "been", "will", "who", "when", "where"]);
+const KNOWLEDGE_BASE_TEXT = KB.map(e => `[${e.title}]: ${e.text}`).join("\n\n");
 
-function retrieve(query, topK = 3) {
-  const qTokens = tokenize(query).filter(t => !STOPWORDS.has(t));
-  const scored = KB.map(entry => {
-    const entryTokens = new Set(tokenize(entry.title + " " + entry.text));
-    let score = 0;
-    qTokens.forEach(t => { if (entryTokens.has(t)) score += 1; });
-    return { entry, score };
-  }).filter(s => s.score > 0)
-    .sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
-}
+const NOT_FOUND_TOKEN = "NOT_FOUND";
 
-// Confidence gate — if nothing scores above this, we never call the LLM at all.
-const CONFIDENCE_MIN_SCORE = 1;
+const SYSTEM_PROMPT = `You are the BSX Connect Assistant, an internal onboarding assistant for Boston Scientific's new commercial platform, BSX Connect.
+
+Below is the complete official FAQ knowledge base for BSX Connect. Answer the user's question using ONLY information contained in this knowledge base. Keep answers concise (2-4 sentences), friendly, and practical for a sales rep.
+
+If the knowledge base does not contain enough information to answer the question confidently, respond with EXACTLY this and nothing else: ${NOT_FOUND_TOKEN}
+
+Do not guess, do not use outside knowledge, and do not soften a non-answer into a partial guess — if it's not covered, return the token above exactly.
+
+KNOWLEDGE BASE:
+${KNOWLEDGE_BASE_TEXT}`;
+
+const FALLBACK_MESSAGE = "I don't have a confident answer to that yet — rather than guess, I'd rather point you to a person. For platform how-to questions, reach out to your local BSX Connect Champion; for anything account-specific, your regional Sales Operations lead.";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -54,20 +55,16 @@ export default async function handler(req, res) {
   if (!query || typeof query !== "string" || !query.trim()) {
     return res.status(400).json({ error: "Missing 'query' in request body" });
   }
+  const trimmedQuery = query.trim();
 
-  const matches = retrieve(query, 3);
-  const hasConfidentMatch = matches.length > 0 && matches[0].score >= CONFIDENCE_MIN_SCORE;
-
-  // Guardrail path — deterministic, no model call, no chance of hallucination here.
-  if (!hasConfidentMatch) {
+  // Casual greetings get a friendly canned reply — no LLM call needed for these.
+  const GREETING_PATTERN = /^(hi|hello|hey|helo|hii+|yo|sup|good\s?morning|good\s?afternoon|good\s?evening|greetings)[\s!.,]*$/i;
+  if (GREETING_PATTERN.test(trimmedQuery)) {
     return res.status(200).json({
-      answer: "I don't have a confident answer to that yet — rather than guess, I'd rather point you to a person. For platform how-to questions, reach out to your local BSX Connect Champion; for anything account-specific, your regional Sales Operations lead.",
-      grounded: false
+      answer: "Hi! I'm the BSX Connect Assistant — ask me about logging in, syncing your data, submitting quotes, or finding the right contact for help.",
+      grounded: true
     });
   }
-
-  const context = matches.map(m => `[${m.entry.title}]: ${m.entry.text}`).join("\n\n");
-  const systemPrompt = `You are the BSX Connect Assistant, an internal onboarding assistant for Boston Scientific's new commercial platform, BSX Connect. Answer ONLY using the provided context below. Keep answers concise (2-4 sentences), friendly, and practical for a sales rep. Do not invent details not present in the context. If the context doesn't fully answer the question, say what you do know and note the gap plainly.\n\nCONTEXT:\n${context}`;
 
   if (!process.env.OPENAI_API_KEY) {
     return res.status(500).json({ error: "Server is missing OPENAI_API_KEY — set it in your hosting provider's environment variables." });
@@ -83,9 +80,10 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: "gpt-4o-mini",
         max_tokens: 300,
+        temperature: 0.3,
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: query }
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: trimmedQuery }
         ]
       })
     });
@@ -93,15 +91,15 @@ export default async function handler(req, res) {
     const data = await response.json();
     if (data.error) throw new Error(data.error.message || "OpenAI request failed");
 
-    const answer = data.choices && data.choices[0] && data.choices[0].message
+    const raw = (data.choices && data.choices[0] && data.choices[0].message
       ? data.choices[0].message.content
-      : "I wasn't able to generate a response — please try rephrasing your question.";
+      : "").trim();
 
-    return res.status(200).json({
-      answer,
-      grounded: true,
-      sources: matches.map(m => m.entry.title) // returned to client for optional internal debugging; not shown in UI
-    });
+    if (!raw || raw === NOT_FOUND_TOKEN || raw.startsWith(NOT_FOUND_TOKEN)) {
+      return res.status(200).json({ answer: FALLBACK_MESSAGE, grounded: false });
+    }
+
+    return res.status(200).json({ answer: raw, grounded: true });
   } catch (err) {
     return res.status(500).json({ error: "Upstream model error", detail: err.message });
   }
