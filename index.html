@@ -335,6 +335,12 @@ function removeTyping() {
   if (el) el.remove();
 }
 
+// In-memory conversation history for this session only — never persisted to
+// any storage. Lets the assistant respond naturally to context ("okay",
+// "and what about mobile?") instead of treating every message in isolation.
+const conversationHistory = [];
+const MAX_HISTORY_MESSAGES = 12; // ~6 exchanges of context
+
 async function handleQuery(query) {
   addTyping();
 
@@ -342,7 +348,7 @@ async function handleQuery(query) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query })
+      body: JSON.stringify({ query, history: conversationHistory.slice(-MAX_HISTORY_MESSAGES) })
     });
     const data = await response.json();
     removeTyping();
@@ -356,6 +362,10 @@ async function handleQuery(query) {
     }
 
     addMessage("bot", { text: data.answer, fallback: !data.grounded });
+
+    // Record this exchange for future context
+    conversationHistory.push({ role: "user", content: query });
+    conversationHistory.push({ role: "assistant", content: data.answer });
   } catch (err) {
     removeTyping();
     addMessage("bot", {
